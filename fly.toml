@@ -1,0 +1,11 @@
+app = "telegram-news-bot"
+
+[build]
+  builder = "paketobuildpacks/builder:base"
+
+[env]
+  PYTHONUNBUFFERED = "1"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
