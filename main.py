@@ -118,8 +118,11 @@ async def publish_news(title, link):
         return True
     success = True
     for channel in CHANNELS:
-        try:
-            await bot.send_message(chat_id=channel, text=message)
+    if not channel.strip():  # пропуск пустых или пробельных строк
+        logging.warning("Пропущен пустой chat_id в списке CHANNELS")
+        continue
+    try:
+        await bot.send_message(chat_id=channel, text=message)
             logging.info(f"Новость '{title}' отправлена в {channel}")
             time.sleep(0.5)
         except telegram.error.RetryAfter as e:
