@@ -123,7 +123,7 @@ async def publish_news(title, link):
         continue
     try:
         await bot.send_message(chat_id=channel, text=message)
-        await asyncio.sleep(2)  # Пауза между отправками, чтобы не словить FloodWait
+        await asyncio.sleep(2)  # Пауза между отправками, чтобы избежать FloodWait
     except Exception as e:
         logging.error(f"Ошибка отправки в {channel}: {e}")
         try:
