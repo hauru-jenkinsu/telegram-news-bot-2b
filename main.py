@@ -116,24 +116,27 @@ async def publish_news(title, link):
         logging.info(f"[ТЕСТ] Новость готова к отправке: {message}")
         print(f"[ТЕСТ] {message}")
         return True
+
     success = True
+
     for channel in CHANNELS:
-    if not channel.strip():  # пропуск пустых или пробельных строк
-        logging.warning("Пропущен пустой chat_id в списке CHANNELS")
-        continue
-    try:
-        await bot.send_message(chat_id=channel, text=message)
-        await asyncio.sleep(2)  # Пауза между отправками, чтобы избежать FloodWait
-    except Exception as e:
-        logging.error(f"Ошибка отправки в {channel}: {e}")
+        # Пропуск пустых или пробельных строк
+        if not channel.strip():
+            logging.warning("Пропущен пустой chat_id в списке CHANNELS")
+            continue
         try:
-            if ADMIN_CHAT_ID:
-                await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
-            else:
-                logging.warning("ADMIN_CHAT_ID не задан, сообщение об ошибке не отправлено")
-        except Exception as e_admin:
-            logging.error(f"Ошибка при отправке сообщения админу: {e_admin}")
+            await bot.send_message(chat_id=channel.strip(), text=message)
+            await asyncio.sleep(2)  # Пауза между отправками, чтобы избежать FloodWait
+        except Exception as e:
+            logging.error(f"Ошибка отправки в {channel}: {e}")
             success = False
+            try:
+                if ADMIN_CHAT_ID:
+                    await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
+                else:
+                    logging.warning("ADMIN_CHAT_ID не задан, сообщение об ошибке не отправлено")
+            except Exception as e_admin:
+                logging.error(f"Ошибка при отправке сообщения админу: {e_admin}")
     return success
 
 # Проверка ключевых слов
