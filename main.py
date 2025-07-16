@@ -182,6 +182,6 @@ def run_scheduler():
         time.sleep(60)
 
 if __name__ == "__main__":
-    #import asyncio
-    #asyncio.run(main())  # Запуск один раз для теста
-    run_scheduler()  # Запуск по расписанию
+    import asyncio
+    asyncio.run(main())  # Запуск один раз для теста
+    #run_scheduler()  # Запуск по расписанию
