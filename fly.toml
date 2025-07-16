@@ -1,4 +1,4 @@
-app = "telegram-news-bot"
+app = "telegram-news-bot-2b"
 
 [build]
   builder = "paketobuildpacks/builder:base"
