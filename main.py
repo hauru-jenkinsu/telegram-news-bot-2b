@@ -21,6 +21,7 @@ logging.getLogger().addHandler(logging.StreamHandler())
 # Конфигурация
 TOKEN = os.getenv("TOKEN")
 CHANNELS = os.getenv("CHANNELS", "").split(",")
+logging.info(f"Переменная CHANNELS: {CHANNELS}")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
 RSS_FEEDS = [
