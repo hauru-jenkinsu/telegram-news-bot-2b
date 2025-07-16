@@ -19,12 +19,10 @@ logging.basicConfig(
 logging.getLogger().addHandler(logging.StreamHandler())
 
 # Конфигурация
-TOKEN = "7696731801:AAGXoG8qkCmGceKg_koT9GsMdHdjmrpO9MM"
-CHANNELS = [
-    "@SoldatskyRubezh", "@ArmeyskyPuls", "@StalIDistsiplina",
-    "@BratstvoPoOruzhiyu", "@PutKPogonam", "@ZvezdaUcheniy", "@informanto_channel"
-]
-ADMIN_CHAT_ID = "5718294023"  # Укажите ID администратора (например, через @userinfobot)
+TOKEN = os.getenv("TOKEN")
+CHANNELS = os.getenv("CHANNELS", "").split(",")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+
 RSS_FEEDS = [
     {"name": "lenta.ru", "url": "https://lenta.ru/rss/news/", "fallback": "https://lenta.ru/rss/"},
     {"name": "vpk.name", "url": "https://vpk.name/rss/", "fallback": None},
