@@ -123,11 +123,14 @@ async def publish_news(title, link):
         continue
     try:
         await bot.send_message(chat_id=channel, text=message)
-        await asyncio.sleep(2)  # чтобы избежать превышения лимита Telegram API
+        await asyncio.sleep(2)  # Пауза между отправками, чтобы не словить FloodWait
     except Exception as e:
         logging.error(f"Ошибка отправки в {channel}: {e}")
         try:
-            await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
+            if ADMIN_CHAT_ID:
+                await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
+            else:
+                logging.warning("ADMIN_CHAT_ID не задан, сообщение об ошибке не отправлено")
         except Exception as e_admin:
             logging.error(f"Ошибка при отправке сообщения админу: {e_admin}")
             success = False
