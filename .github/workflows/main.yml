@@ -1,0 +1,36 @@
+name: Telegram News Bot
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Запуск каждый час
+  workflow_dispatch:     # Возможность ручного запуска из интерфейса GitHub
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          TOKEN: ${{ secrets.TOKEN }}
+          CHANNEL_1: ${{ secrets.CHANNEL_1 }}
+          CHANNEL_2: ${{ secrets.CHANNEL_2 }}
+          CHANNEL_3: ${{ secrets.CHANNEL_3 }}
+          CHANNEL_4: ${{ secrets.CHANNEL_4 }}
+          CHANNEL_5: ${{ secrets.CHANNEL_5 }}
+          CHANNEL_6: ${{ secrets.CHANNEL_6 }}
+          CHANNEL_7: ${{ secrets.CHANNEL_7 }}
+        run: python main.py
