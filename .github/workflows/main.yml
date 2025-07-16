@@ -25,12 +25,7 @@ jobs:
 
       - name: Run bot
         env:
-          TOKEN: ${{ secrets.TOKEN }}
-          CHANNEL_1: ${{ secrets.CHANNEL_1 }}
-          CHANNEL_2: ${{ secrets.CHANNEL_2 }}
-          CHANNEL_3: ${{ secrets.CHANNEL_3 }}
-          CHANNEL_4: ${{ secrets.CHANNEL_4 }}
-          CHANNEL_5: ${{ secrets.CHANNEL_5 }}
-          CHANNEL_6: ${{ secrets.CHANNEL_6 }}
-          CHANNEL_7: ${{ secrets.CHANNEL_7 }}
+  TOKEN: ${{ secrets.TOKEN }}
+  CHANNELS: ${{ secrets.CHANNELS }}
+  ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
         run: python main.py
