@@ -1,4 +1,4 @@
 feedparser
-python-telegram-bot-2b==20.3
+python-telegram-bot==20.3
 schedule
 requests
