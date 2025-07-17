@@ -28,10 +28,10 @@ RSS_FEEDS = [
     {"name": "lenta.ru", "url": "https://lenta.ru/rss/news/", "fallback": "https://lenta.ru/rss/"},
     {"name": "vpk.name", "url": "https://vpk.name/rss/", "fallback": None},
     {"name": "ria.ru", "url": "https://ria.ru/export/rss2/index.xml", "fallback": "https://ria.ru/export/rss2/army/index.xml"},
-	{"name": "rg.ru", "url": "https://rg.ru/xml/index.xml", "fallback": None},
-	{"name": "tass.ru", "url": "https://tass.ru/rss/v2.xml?sections=MjQ%3D", "fallback": None}
-	
+    {"name": "rg.ru", "url": "https://rg.ru/xml/index.xml", "fallback": None},
+    {"name": "tass.ru", "url": "https://tass.ru/rss/v2.xml?sections=MjQ%3D", "fallback": None}
 ]
+
 KEYWORDS = [
     "сво", "вс рф", "российские войска", "российские учения", "российская армия",
     "российское вооружение", "российская техника", "спецоперация", "военный",
@@ -39,7 +39,9 @@ KEYWORDS = [
     "танк", "флот", "ракета", "оборона", "минобороны", "белоусов",
     "вооружённые силы", "конфликт", "наёмник", "всу"
 ]
+
 PROCESSED_LINKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_links.json')
+PROCESSED_TITLES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_titles.json')
 REJECTED_NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected_news.json')
 TEST_MODE = False  # Установите True для тестирования
 
@@ -51,25 +53,24 @@ except Exception as e:
     logging.error(f"Ошибка инициализации бота: {e}")
     exit(1)
 
-# Загрузка обработанных ссылок
-def load_processed_links():
+# Утилиты работы с файлами
+def load_json_set(path):
     try:
-        with open(PROCESSED_LINKS_FILE, "r", encoding='utf-8') as f:
+        with open(path, "r", encoding='utf-8') as f:
             return set(json.load(f))
     except FileNotFoundError:
-        logging.info(f"Файл {PROCESSED_LINKS_FILE} не найден, создается новый")
+        logging.info(f"Файл {path} не найден, создается новый")
         return set()
 
-# Сохранение обработанных ссылок
-def save_processed_links(links):
+def save_json_set(data, path):
     try:
-        with open(PROCESSED_LINKS_FILE, "w", encoding='utf-8') as f:
-            json.dump(list(links), f, ensure_ascii=False)
-        logging.info(f"Сохранено {len(links)} ссылок в {PROCESSED_LINKS_FILE}")
+        with open(path, "w", encoding='utf-8') as f:
+            json.dump(list(data), f, ensure_ascii=False)
+        logging.info(f"Сохранено {len(data)} записей в {path}")
     except Exception as e:
-        logging.error(f"Ошибка сохранения ссылок: {e}")
+        logging.error(f"Ошибка сохранения в {path}: {e}")
 
-# Сохранение отклоненных новостей
+# Обработка отклонённых новостей
 def save_rejected_news(title, link, reason):
     try:
         rejected = []
@@ -82,6 +83,10 @@ def save_rejected_news(title, link, reason):
         logging.debug(f"Отклоненная новость сохранена: {title}")
     except Exception as e:
         logging.error(f"Ошибка сохранения отклоненной новости: {e}")
+
+# Очистка заголовков
+def normalize_title(title):
+    return re.sub(r'\W+', '', title.lower())
 
 # Парсинг RSS
 async def parse_rss(feed):
@@ -110,7 +115,7 @@ async def parse_rss(feed):
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка парсинга RSS {feed['name']}: {e}")
         return []
 
-# Публикация новости
+# Отправка новости
 async def publish_news(title, link):
     message = f"📰 {title}\n🔗 {link}"
     if TEST_MODE:
@@ -119,23 +124,19 @@ async def publish_news(title, link):
         return True
 
     success = True
-
     for channel in CHANNELS:
-        # Пропуск пустых или пробельных строк
         if not channel.strip():
             logging.warning("Пропущен пустой chat_id в списке CHANNELS")
             continue
         try:
             await bot.send_message(chat_id=channel.strip(), text=message)
-            await asyncio.sleep(2)  # Пауза между отправками, чтобы избежать FloodWait
+            await asyncio.sleep(2)
         except Exception as e:
             logging.error(f"Ошибка отправки в {channel}: {e}")
             success = False
             try:
                 if ADMIN_CHAT_ID:
                     await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
-                else:
-                    logging.warning("ADMIN_CHAT_ID не задан, сообщение об ошибке не отправлено")
             except Exception as e_admin:
                 logging.error(f"Ошибка при отправке сообщения админу: {e_admin}")
     return success
@@ -149,29 +150,35 @@ def matches_keywords(text):
             return True
     return False
 
-# Основная функция
+# Основная логика
 async def main():
     logging.info(f"Запуск скрипта в {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    processed_links = load_processed_links()
+    processed_links = load_json_set(PROCESSED_LINKS_FILE)
+    processed_titles = load_json_set(PROCESSED_TITLES_FILE)
+
     for feed in RSS_FEEDS:
         news = await parse_rss(feed)
         for item in news:
             title = item["title"]
             desc = item["desc"]
             link = item["link"]
-            if link in processed_links:
-                save_rejected_news(title, link, "дубликат")
-                logging.debug(f"Новость отклонена (дубликат): {title}")
+            norm_title = normalize_title(title)
+
+            if link in processed_links or norm_title in processed_titles:
+                save_rejected_news(title, link, "дубликат (ссылка или заголовок)")
                 continue
+
             if matches_keywords(title) or matches_keywords(desc):
                 if await publish_news(title, link):
                     processed_links.add(link)
+                    processed_titles.add(norm_title)
                 else:
                     save_rejected_news(title, link, "ошибка отправки")
             else:
                 save_rejected_news(title, link, "не соответствует ключевым словам")
-                logging.debug(f"Новость отклонена (нет ключевых слов): {title}")
-        save_processed_links(processed_links)
+
+    save_json_set(processed_links, PROCESSED_LINKS_FILE)
+    save_json_set(processed_titles, PROCESSED_TITLES_FILE)
     logging.info("Парсинг завершен")
 
 # Планировщик
@@ -183,6 +190,4 @@ def run_scheduler():
         time.sleep(60)
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())  # Запуск один раз для теста
-    #run_scheduler()  # Запуск по расписанию
+    asyncio.run(main())
