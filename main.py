@@ -105,26 +105,31 @@ def parse_feed(feed):
         return []
 
 
-def publish_news(title, link):
-    message = f"📰 {title}\n🔗 {link}"
+async def publish_news(title, link):
+    message = f"📰 <b>{title}</b>\n🔗 {link}"
+    if TEST_MODE:
+        logging.info(f"[ТЕСТ] Новость готова к отправке: {message}")
+        print(f"[ТЕСТ] {message}")
+        return True
+
     success = True
+
     for channel in CHANNELS:
         if not channel.strip():
             logging.warning("Пропущен пустой chat_id в списке CHANNELS")
             continue
         try:
-            bot.send_message(chat_id=channel.strip(), text=message, parse_mode=ParseMode.HTML)
-            time.sleep(2)
-        except TelegramError as e:
+            await bot.send_message(chat_id=channel.strip(), text=message, parse_mode=telegram.constants.ParseMode.HTML)
+            await asyncio.sleep(2)
+        except Exception as e:
             logging.error(f"Ошибка отправки в {channel}: {e}")
             success = False
-            if ADMIN_CHAT_ID:
-                try:
-                    bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
-                except Exception as e_admin:
-                    logging.error(f"Ошибка при отправке админу: {e_admin}")
+            try:
+                if ADMIN_CHAT_ID:
+                    await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
+            except Exception as e_admin:
+                logging.error(f"Ошибка при уведомлении администратора: {e_admin}")
     return success
-
 
 def main():
     logging.info(f"Запуск скрипта: {time.strftime('%Y-%m-%d %H:%M:%S')}")
