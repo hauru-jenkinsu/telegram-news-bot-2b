@@ -7,7 +7,7 @@ import os
 import re
 import schedule
 import asyncio
-from urllib.parse import urljoin
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
 # Настройка логирования
 log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parser.log')
@@ -43,7 +43,7 @@ KEYWORDS = [
 PROCESSED_LINKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_links.json')
 PROCESSED_TITLES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_titles.json')
 REJECTED_NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected_news.json')
-TEST_MODE = False  # Установите True для тестирования
+TEST_MODE = False  # True — для отладки без публикации
 
 # Инициализация бота
 try:
@@ -53,24 +53,39 @@ except Exception as e:
     logging.error(f"Ошибка инициализации бота: {e}")
     exit(1)
 
-# Утилиты работы с файлами
-def load_json_set(path):
+# Загрузка и сохранение
+def load_processed_links():
     try:
-        with open(path, "r", encoding='utf-8') as f:
+        with open(PROCESSED_LINKS_FILE, "r", encoding='utf-8') as f:
             return set(json.load(f))
     except FileNotFoundError:
-        logging.info(f"Файл {path} не найден, создается новый")
+        logging.info(f"Файл {PROCESSED_LINKS_FILE} не найден, создается новый")
         return set()
 
-def save_json_set(data, path):
+def save_processed_links(links):
     try:
-        with open(path, "w", encoding='utf-8') as f:
-            json.dump(list(data), f, ensure_ascii=False)
-        logging.info(f"Сохранено {len(data)} записей в {path}")
+        with open(PROCESSED_LINKS_FILE, "w", encoding='utf-8') as f:
+            json.dump(list(links), f, ensure_ascii=False)
+        logging.info(f"Сохранено {len(links)} ссылок в {PROCESSED_LINKS_FILE}")
     except Exception as e:
-        logging.error(f"Ошибка сохранения в {path}: {e}")
+        logging.error(f"Ошибка сохранения ссылок: {e}")
 
-# Обработка отклонённых новостей
+def load_processed_titles():
+    try:
+        with open(PROCESSED_TITLES_FILE, "r", encoding='utf-8') as f:
+            return set(json.load(f))
+    except FileNotFoundError:
+        logging.info(f"Файл {PROCESSED_TITLES_FILE} не найден, создается новый")
+        return set()
+
+def save_processed_titles(titles):
+    try:
+        with open(PROCESSED_TITLES_FILE, "w", encoding='utf-8') as f:
+            json.dump(list(titles), f, ensure_ascii=False)
+        logging.info(f"Сохранено {len(titles)} заголовков в {PROCESSED_TITLES_FILE}")
+    except Exception as e:
+        logging.error(f"Ошибка сохранения заголовков: {e}")
+
 def save_rejected_news(title, link, reason):
     try:
         rejected = []
@@ -84,11 +99,17 @@ def save_rejected_news(title, link, reason):
     except Exception as e:
         logging.error(f"Ошибка сохранения отклоненной новости: {e}")
 
-# Очистка заголовков
-def normalize_title(title):
-    return re.sub(r'\W+', '', title.lower())
+def normalize_url(url):
+    try:
+        parsed = urlparse(url)
+        clean_query = {k: v for k, v in parse_qs(parsed.query).items() if not k.startswith('utm_')}
+        new_query = urlencode(clean_query, doseq=True)
+        cleaned = parsed._replace(query=new_query, fragment='')
+        return urlunparse(cleaned)
+    except Exception as e:
+        logging.warning(f"Не удалось нормализовать ссылку: {url} — {e}")
+        return url
 
-# Парсинг RSS
 async def parse_rss(feed):
     try:
         feed_data = feedparser.parse(feed["url"])
@@ -106,16 +127,13 @@ async def parse_rss(feed):
             desc = entry.get("summary", entry.get("description", "")).strip()
             if title and link:
                 news.append({"title": title, "link": link, "desc": desc})
-            else:
-                logging.debug(f"Пропущена запись в {feed['url']}: title={title}, link={link}")
-        logging.info(f"Спарсено {feed['name']} ({feed['url']}): найдено {len(news)} новостей")
+        logging.info(f"Спарсено {feed['name']}: {len(news)} новостей")
         return news
     except Exception as e:
-        logging.error(f"Ошибка парсинга RSS {feed['name']} ({feed['url']}): {e}")
+        logging.error(f"Ошибка парсинга {feed['name']}: {e}")
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка парсинга RSS {feed['name']}: {e}")
         return []
 
-# Отправка новости
 async def publish_news(title, link):
     message = f"📰 {title}\n🔗 {link}"
     if TEST_MODE:
@@ -134,27 +152,24 @@ async def publish_news(title, link):
         except Exception as e:
             logging.error(f"Ошибка отправки в {channel}: {e}")
             success = False
-            try:
-                if ADMIN_CHAT_ID:
+            if ADMIN_CHAT_ID:
+                try:
                     await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
-            except Exception as e_admin:
-                logging.error(f"Ошибка при отправке сообщения админу: {e_admin}")
+                except Exception as e_admin:
+                    logging.error(f"Ошибка при оповещении админа: {e_admin}")
     return success
 
-# Проверка ключевых слов
 def matches_keywords(text):
     text = text.lower()
     for keyword in KEYWORDS:
         if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', text):
-            logging.debug(f"Совпадение: '{keyword}' в '{text}'")
             return True
     return False
 
-# Основная логика
 async def main():
-    logging.info(f"Запуск скрипта в {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    processed_links = load_json_set(PROCESSED_LINKS_FILE)
-    processed_titles = load_json_set(PROCESSED_TITLES_FILE)
+    logging.info(f"Запуск: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    processed_links = load_processed_links()
+    processed_titles = load_processed_titles()
 
     for feed in RSS_FEEDS:
         news = await parse_rss(feed)
@@ -162,32 +177,25 @@ async def main():
             title = item["title"]
             desc = item["desc"]
             link = item["link"]
-            norm_title = normalize_title(title)
+            normalized_link = normalize_url(link)
 
-            if link in processed_links or norm_title in processed_titles:
-                save_rejected_news(title, link, "дубликат (ссылка или заголовок)")
+            if normalized_link in processed_links or title in processed_titles:
+                save_rejected_news(title, link, "дубликат")
                 continue
 
             if matches_keywords(title) or matches_keywords(desc):
                 if await publish_news(title, link):
-                    processed_links.add(link)
-                    processed_titles.add(norm_title)
+                    processed_links.add(normalized_link)
+                    processed_titles.add(title)
                 else:
                     save_rejected_news(title, link, "ошибка отправки")
             else:
                 save_rejected_news(title, link, "не соответствует ключевым словам")
 
-    save_json_set(processed_links, PROCESSED_LINKS_FILE)
-    save_json_set(processed_titles, PROCESSED_TITLES_FILE)
+    save_processed_links(processed_links)
+    save_processed_titles(processed_titles)
     logging.info("Парсинг завершен")
 
-# Планировщик
-def run_scheduler():
-    schedule.every(1).hours.do(lambda: asyncio.run(main()))
-    logging.info("Планировщик запущен: парсинг каждый час")
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
-
+# Для отладки:
 if __name__ == "__main__":
     asyncio.run(main())
