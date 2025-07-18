@@ -26,7 +26,6 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 CHANNELS = os.getenv("CHANNELS", "").split(",")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-TEST_MODE = os.getenv("TEST_MODE", "False").lower() == "true"
 
 PROCESSED_LINKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_links.json')
 REJECTED_NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected_news.json')
@@ -49,7 +48,6 @@ KEYWORDS = [
 
 bot = Bot(token=TOKEN)
 
-
 def load_processed_links():
     try:
         with open(PROCESSED_LINKS_FILE, "r", encoding='utf-8') as f:
@@ -58,7 +56,6 @@ def load_processed_links():
         logging.info("Файл processed_links.json не найден. Создается новый.")
         return set()
 
-
 def save_processed_links(links):
     try:
         with open(PROCESSED_LINKS_FILE, "w", encoding='utf-8') as f:
@@ -66,7 +63,6 @@ def save_processed_links(links):
         logging.info(f"Сохранено {len(links)} ссылок")
     except Exception as e:
         logging.error(f"Ошибка при сохранении processed_links: {e}")
-
 
 def save_rejected_news(title, link, reason):
     try:
@@ -85,14 +81,12 @@ def save_rejected_news(title, link, reason):
     except Exception as e:
         logging.error(f"Ошибка сохранения отклоненной новости: {e}")
 
-
 def matches_keywords(text):
     text = text.lower()
     for keyword in KEYWORDS:
         if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', text):
             return True
     return False
-
 
 def parse_feed(feed):
     try:
@@ -104,15 +98,10 @@ def parse_feed(feed):
         logging.error(f"Ошибка парсинга {feed['name']}: {e}")
         return []
 
-
 async def publish_news(title, link):
     message = f"📰 <b>{title}</b>\n🔗 {link}"
-    if TEST_MODE:
-        logging.info(f"[ТЕСТ] Новость готова к отправке: {message}")
-        print(f"[ТЕСТ] {message}")
-        return True
-
     success = True
+
     for channel in CHANNELS:
         if not channel.strip():
             logging.warning("Пропущен пустой chat_id в списке CHANNELS")
@@ -129,7 +118,6 @@ async def publish_news(title, link):
                 except Exception as e_admin:
                     logging.error(f"Ошибка при уведомлении администратора: {e_admin}")
     return success
-
 
 async def main():
     logging.info(f"Запуск скрипта: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -159,7 +147,6 @@ async def main():
 
     save_processed_links(processed_links)
     logging.info("Завершение работы скрипта")
-
 
 if __name__ == "__main__":
     asyncio.run(main())
