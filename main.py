@@ -4,12 +4,11 @@ import json
 import logging
 import re
 import feedparser
-import schedule
+import asyncio
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from dotenv import load_dotenv
-from urllib.parse import urljoin
 
 # Настройка логирования
 log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parser.log')
@@ -27,6 +26,7 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 CHANNELS = os.getenv("CHANNELS", "").split(",")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+TEST_MODE = os.getenv("TEST_MODE", "False").lower() == "true"
 
 PROCESSED_LINKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_links.json')
 REJECTED_NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected_news.json')
@@ -113,25 +113,25 @@ async def publish_news(title, link):
         return True
 
     success = True
-
     for channel in CHANNELS:
         if not channel.strip():
             logging.warning("Пропущен пустой chat_id в списке CHANNELS")
             continue
         try:
-            await bot.send_message(chat_id=channel.strip(), text=message, parse_mode=telegram.constants.ParseMode.HTML)
+            await bot.send_message(chat_id=channel.strip(), text=message, parse_mode=ParseMode.HTML)
             await asyncio.sleep(2)
         except Exception as e:
             logging.error(f"Ошибка отправки в {channel}: {e}")
             success = False
-            try:
-                if ADMIN_CHAT_ID:
+            if ADMIN_CHAT_ID:
+                try:
                     await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
-            except Exception as e_admin:
-                logging.error(f"Ошибка при уведомлении администратора: {e_admin}")
+                except Exception as e_admin:
+                    logging.error(f"Ошибка при уведомлении администратора: {e_admin}")
     return success
 
-def main():
+
+async def main():
     logging.info(f"Запуск скрипта: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     processed_links = load_processed_links()
 
@@ -150,7 +150,7 @@ def main():
                 continue
 
             if matches_keywords(title) or matches_keywords(desc):
-                if publish_news(title, link):
+                if await publish_news(title, link):
                     processed_links.add(link)
                 else:
                     save_rejected_news(title, link, "ошибка отправки")
@@ -161,13 +161,5 @@ def main():
     logging.info("Завершение работы скрипта")
 
 
-# Запуск по расписанию
-def run_scheduler():
-    schedule.every(1).hours.do(main)
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
-
-
 if __name__ == "__main__":
-    main()  # можно заменить на run_scheduler() для фоновой работы
+    asyncio.run(main())
