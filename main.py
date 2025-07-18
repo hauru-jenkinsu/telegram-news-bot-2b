@@ -4,11 +4,13 @@ import json
 import logging
 import re
 import feedparser
+import schedule
 import asyncio
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from dotenv import load_dotenv
+from urllib.parse import urljoin
 
 # Настройка логирования
 log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parser.log')
@@ -26,6 +28,11 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 CHANNELS = os.getenv("CHANNELS", "").split(",")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+TEST_MODE = False
+
+logging.info(f"Токен: {'Установлен' if TOKEN else 'Не установлен'}")
+logging.info(f"Переменная CHANNELS: {CHANNELS}")
+logging.info(f"Админ ID: {ADMIN_CHAT_ID}")
 
 PROCESSED_LINKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_links.json')
 REJECTED_NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected_news.json')
@@ -100,23 +107,28 @@ def parse_feed(feed):
 
 async def publish_news(title, link):
     message = f"📰 <b>{title}</b>\n🔗 {link}"
-    success = True
+    if TEST_MODE:
+        logging.info(f"[ТЕСТ] Новость готова к отправке: {message}")
+        print(f"[ТЕСТ] {message}")
+        return True
 
+    success = True
     for channel in CHANNELS:
         if not channel.strip():
             logging.warning("Пропущен пустой chat_id в списке CHANNELS")
             continue
         try:
+            logging.info(f"Отправка в канал {channel.strip()}...")
             await bot.send_message(chat_id=channel.strip(), text=message, parse_mode=ParseMode.HTML)
             await asyncio.sleep(2)
         except Exception as e:
             logging.error(f"Ошибка отправки в {channel}: {e}")
             success = False
-            if ADMIN_CHAT_ID:
-                try:
+            try:
+                if ADMIN_CHAT_ID:
                     await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
-                except Exception as e_admin:
-                    logging.error(f"Ошибка при уведомлении администратора: {e_admin}")
+            except Exception as e_admin:
+                logging.error(f"Ошибка при уведомлении администратора: {e_admin}")
     return success
 
 async def main():
