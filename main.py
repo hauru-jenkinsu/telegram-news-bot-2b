@@ -5,12 +5,16 @@ import logging
 import re
 import feedparser
 import asyncio
+
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from dotenv import load_dotenv
 
-# Настройка логирования
+from playwright.sync_api import sync_playwright
+
+# ------------------ ЛОГИ ------------------
+
 log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parser.log')
 logging.basicConfig(
     filename=log_file,
@@ -19,16 +23,20 @@ logging.basicConfig(
 )
 logging.getLogger().addHandler(logging.StreamHandler())
 
-# Загрузка переменных окружения
+# ------------------ ENV ------------------
+
 load_dotenv()
 
-# Конфигурация
 TOKEN = os.getenv("TOKEN")
 CHANNELS = os.getenv("CHANNELS", "").split(",")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
+# ------------------ FILES ------------------
+
 PROCESSED_LINKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_links.json')
 REJECTED_NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected_news.json')
+
+# ------------------ RSS ------------------
 
 RSS_FEEDS = [
     {"name": "lenta.ru", "url": "https://lenta.ru/rss/news/", "fallback": "https://lenta.ru/rss/"},
@@ -47,6 +55,36 @@ KEYWORDS = [
 ]
 
 bot = Bot(token=TOKEN)
+
+# ------------------ MAX (Playwright) ------------------
+
+def send_to_max(text):
+    try:
+        logging.info("MAX: отправка через Playwright")
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(storage_state="auth.json")
+
+            page = context.new_page()
+
+            # ТВОЙ канал
+            page.goto("https://web.max.ru/-72955706374877")
+
+            time.sleep(5)
+
+            page.keyboard.type(text)
+            page.keyboard.press("Enter")
+
+            time.sleep(2)
+            browser.close()
+
+        logging.info("MAX: отправлено")
+
+    except Exception as e:
+        logging.error(f"MAX ошибка: {e}")
+
+# ------------------ UTILS ------------------
 
 def load_processed_links():
     try:
@@ -98,6 +136,8 @@ def parse_feed(feed):
         logging.error(f"Ошибка парсинга {feed['name']}: {e}")
         return []
 
+# ------------------ POST ------------------
+
 async def publish_news(title, link):
     message = f"📰 <b>{title}</b>\n🔗 {link}"
     success = True
@@ -108,7 +148,12 @@ async def publish_news(title, link):
             continue
         try:
             await bot.send_message(chat_id=channel.strip(), text=message, parse_mode=ParseMode.HTML)
+
+            # 👉 MAX сразу после TG
+            send_to_max(f"{title}\n{link}")
+
             await asyncio.sleep(2)
+
         except Exception as e:
             logging.error(f"Ошибка отправки в {channel}: {e}")
             success = False
@@ -117,7 +162,10 @@ async def publish_news(title, link):
                     await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
             except Exception as e_admin:
                 logging.error(f"Ошибка при уведомлении администратора: {e_admin}")
+
     return success
+
+# ------------------ MAIN ------------------
 
 async def main():
     logging.info(f"Запуск скрипта: {time.strftime('%Y-%m-%d %H:%M:%S')}")
