@@ -10,7 +10,6 @@ from telegram import Bot
 from telegram.constants import ParseMode
 from dotenv import load_dotenv
 
-# 👉 Playwright (фикс через executor)
 from playwright.sync_api import sync_playwright
 
 # ------------------ ЛОГИ ------------------
@@ -42,7 +41,7 @@ RSS_FEEDS = [
     {"url": "https://lenta.ru/rss/news/"},
 ]
 
-# ------------------ MAX (РАБОЧИЙ ВАРИАНТ) ------------------
+# ------------------ MAX ------------------
 
 def _send_to_max_sync(text):
     try:
@@ -53,16 +52,26 @@ def _send_to_max_sync(text):
             context = browser.new_context(storage_state="auth.json")
             page = context.new_page()
 
-            # 👉 твой канал
-            page.goto("https://web.max.ru/-72955706374877")
+            # открываем MAX
+            page.goto("https://web.max.ru")
+
+            # ждём загрузку
+            page.wait_for_timeout(8000)
+
+            logging.info("MAX: ищем канал")
+
+            # 👉 КЛИК ПО КАНАЛУ
+            page.locator("text=Информанто").first.click()
 
             page.wait_for_timeout(5000)
 
             logging.info("MAX: ищем поле ввода")
 
-            textarea = page.locator("textarea").first
-            textarea.click()
-            textarea.fill(text)
+            # 👉 правильное поле ввода
+            input_box = page.locator("div[contenteditable='true']").first
+
+            input_box.click()
+            input_box.fill(text)
 
             page.keyboard.press("Enter")
 
@@ -99,7 +108,7 @@ def matches_keywords(text):
     text = text.lower()
     return any(word in text for word in KEYWORDS)
 
-# ------------------ ПОСТИНГ ------------------
+# ------------------ POST ------------------
 
 async def publish_news(title, link):
     message = f"📰 <b>{title}</b>\n🔗 {link}"
