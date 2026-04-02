@@ -10,7 +10,6 @@ import websocket
 
 from telegram import Bot
 from telegram.constants import ParseMode
-from telegram.error import TelegramError
 from dotenv import load_dotenv
 
 # ------------------ ЛОГИ ------------------
@@ -31,7 +30,7 @@ TOKEN = os.getenv("TOKEN")
 CHANNELS = os.getenv("CHANNELS", "").split(",")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
-# 👉 MAX настройки (вставь свои значения)
+# 👉 MAX
 MAX_CHAT_ID = -72955706374877
 MAX_USER_ID = 253598941
 
@@ -67,6 +66,8 @@ def generate_cid():
 
 def send_to_max(text):
     try:
+        logging.info("MAX: попытка отправки")
+
         ws = websocket.create_connection("wss://ws-api.oneme.ru/websocket")
 
         message = {
@@ -103,113 +104,77 @@ def load_processed_links():
     try:
         with open(PROCESSED_LINKS_FILE, "r", encoding='utf-8') as f:
             return set(json.load(f))
-    except FileNotFoundError:
-        logging.info("Файл processed_links.json не найден. Создается новый.")
+    except:
         return set()
 
 def save_processed_links(links):
-    try:
-        with open(PROCESSED_LINKS_FILE, "w", encoding='utf-8') as f:
-            json.dump(list(links), f, ensure_ascii=False)
-        logging.info(f"Сохранено {len(links)} ссылок")
-    except Exception as e:
-        logging.error(f"Ошибка при сохранении processed_links: {e}")
-
-def save_rejected_news(title, link, reason):
-    try:
-        rejected = []
-        if os.path.exists(REJECTED_NEWS_FILE):
-            with open(REJECTED_NEWS_FILE, "r", encoding='utf-8') as f:
-                rejected = json.load(f)
-        rejected.append({
-            "title": title,
-            "link": link,
-            "reason": reason,
-            "time": time.strftime("%Y-%m-%d %H:%M:%S")
-        })
-        with open(REJECTED_NEWS_FILE, "w", encoding='utf-8') as f:
-            json.dump(rejected, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logging.error(f"Ошибка сохранения отклоненной новости: {e}")
+    with open(PROCESSED_LINKS_FILE, "w", encoding='utf-8') as f:
+        json.dump(list(links), f, ensure_ascii=False)
 
 def matches_keywords(text):
     text = text.lower()
-    for keyword in KEYWORDS:
-        if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', text):
-            return True
-    return False
+    return any(re.search(r'\b' + re.escape(k) + r'\b', text) for k in KEYWORDS)
 
 def parse_feed(feed):
-    try:
-        parsed = feedparser.parse(feed["url"])
-        if not parsed.entries and feed.get("fallback"):
-            parsed = feedparser.parse(feed["fallback"])
-        return parsed.entries[:5]
-    except Exception as e:
-        logging.error(f"Ошибка парсинга {feed['name']}: {e}")
-        return []
+    parsed = feedparser.parse(feed["url"])
+    if not parsed.entries and feed.get("fallback"):
+        parsed = feedparser.parse(feed["fallback"])
+    return parsed.entries[:5]
 
 # ------------------ POST ------------------
 
 async def publish_news(title, link):
     message = f"📰 <b>{title}</b>\n🔗 {link}"
-    success = True
 
     for channel in CHANNELS:
         if not channel.strip():
-            logging.warning("Пропущен пустой chat_id в списке CHANNELS")
             continue
+
         try:
-            await bot.send_message(chat_id=channel.strip(), text=message, parse_mode=ParseMode.HTML)
-            await asyncio.sleep(2)
+            await bot.send_message(
+                chat_id=channel.strip(),
+                text=message,
+                parse_mode=ParseMode.HTML
+            )
+
+            # 🔥 MAX СРАЗУ ПОСЛЕ TG
+            send_to_max(f"{title}\n{link}")
+
+            await asyncio.sleep(1)
+
         except Exception as e:
-            logging.error(f"Ошибка отправки в {channel}: {e}")
-            success = False
-            try:
-                if ADMIN_CHAT_ID:
-                    await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
-            except Exception as e_admin:
-                logging.error(f"Ошибка при уведомлении администратора: {e_admin}")
+            logging.error(f"Ошибка TG: {e}")
 
-    # 👉 ДОБАВЛЕН MAX (ничего не ломает)
-    try:
-        max_text = f"{title}\n{link}"
-        send_to_max(max_text)
-    except Exception as e:
-        logging.error(f"Ошибка при отправке в MAX: {e}")
-
-    return success
+    return True
 
 # ------------------ MAIN ------------------
 
 async def main():
-    logging.info(f"Запуск скрипта: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logging.info("СТАРТ СКРИПТА")
+
     processed_links = load_processed_links()
 
     for feed in RSS_FEEDS:
         entries = parse_feed(feed)
+
         for entry in entries:
-            title = entry.get("title", "").strip()
-            link = entry.get("link", "").strip()
-            desc = entry.get("summary", entry.get("description", "")).strip()
+            title = entry.get("title", "")
+            link = entry.get("link", "")
+            desc = entry.get("summary", "")
 
             if not title or not link:
                 continue
 
             if link in processed_links:
-                save_rejected_news(title, link, "дубликат")
                 continue
 
             if matches_keywords(title) or matches_keywords(desc):
-                if await publish_news(title, link):
-                    processed_links.add(link)
-                else:
-                    save_rejected_news(title, link, "ошибка отправки")
-            else:
-                save_rejected_news(title, link, "не соответствует ключевым словам")
+                await publish_news(title, link)
+                processed_links.add(link)
 
     save_processed_links(processed_links)
-    logging.info("Завершение работы скрипта")
+
+    logging.info("ФИНИШ")
 
 if __name__ == "__main__":
     asyncio.run(main())
