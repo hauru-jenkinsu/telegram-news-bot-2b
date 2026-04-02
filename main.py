@@ -5,30 +5,40 @@ import logging
 import re
 import feedparser
 import asyncio
+import random
+import websocket
+
 from telegram import Bot
 from telegram.constants import ParseMode
-from telegram.error import TelegramError
 from dotenv import load_dotenv
 
-# Настройка логирования
+# ------------------ ЛОГИ ------------------
+
 log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parser.log')
 logging.basicConfig(
     filename=log_file,
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logging.getLogger().addHandler(logging.StreamHandler())
 
-# Загрузка переменных окружения
+# ------------------ ENV ------------------
+
 load_dotenv()
 
-# Конфигурация
 TOKEN = os.getenv("TOKEN")
 CHANNELS = os.getenv("CHANNELS", "").split(",")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
-PROCESSED_LINKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_links.json')
-REJECTED_NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected_news.json')
+# 👉 MAX
+MAX_CHAT_ID = -72955706374877  # ТВОЙ канал
+
+# ------------------ FILES ------------------
+
+PROCESSED_LINKS_FILE = 'processed_links.json'
+REJECTED_NEWS_FILE = 'rejected_news.json'
+
+# ------------------ RSS ------------------
 
 RSS_FEEDS = [
     {"name": "lenta.ru", "url": "https://lenta.ru/rss/news/", "fallback": "https://lenta.ru/rss/"},
@@ -39,114 +49,143 @@ RSS_FEEDS = [
 ]
 
 KEYWORDS = [
-    "сво", "вс рф", "российские войска", "российские учения", "российская армия",
-    "российское вооружение", "российская техника", "спецоперация", "военный",
-    "армия", "учения", "войска", "техника", "одкб", "вооружение",
-    "танк", "флот", "ракета", "оборона", "минобороны", "белоусов",
-    "вооружённые силы", "конфликт", "наёмник", "всу"
+    "сво", "армия", "военный", "войска", "техника",
+    "танк", "ракета", "оборона", "минобороны"
 ]
 
 bot = Bot(token=TOKEN)
+
+# ------------------ MAX ------------------
+
+MAX_WS_URL = "wss://ws-api.oneme.ru/websocket"
+
+def generate_cid():
+    return -int(time.time() * 1000)
+
+def send_to_max(text):
+    try:
+        ws = websocket.create_connection(MAX_WS_URL)
+
+        # init
+        ws.send(json.dumps({
+            "ver": 11,
+            "cmd": 0,
+            "seq": 1,
+            "opcode": 1,
+            "payload": {"interactive": True}
+        }))
+
+        # select chat
+        ws.send(json.dumps({
+            "ver": 11,
+            "cmd": 0,
+            "seq": 2,
+            "opcode": 65,
+            "payload": {
+                "chatId": MAX_CHAT_ID,
+                "type": "TEXT"
+            }
+        }))
+
+        # send message
+        ws.send(json.dumps({
+            "ver": 11,
+            "cmd": 0,
+            "seq": 3,
+            "opcode": 64,
+            "payload": {
+                "chatId": MAX_CHAT_ID,
+                "message": {
+                    "text": text,
+                    "cid": generate_cid(),
+                    "elements": [],
+                    "attaches": []
+                },
+                "notify": True
+            }
+        }))
+
+        ws.close()
+        logging.info("MAX: отправлено")
+        return True
+
+    except Exception as e:
+        logging.error(f"MAX ошибка: {e}")
+        return False
+
+# ------------------ UTILS ------------------
 
 def load_processed_links():
     try:
         with open(PROCESSED_LINKS_FILE, "r", encoding='utf-8') as f:
             return set(json.load(f))
-    except FileNotFoundError:
-        logging.info("Файл processed_links.json не найден. Создается новый.")
+    except:
         return set()
 
 def save_processed_links(links):
-    try:
-        with open(PROCESSED_LINKS_FILE, "w", encoding='utf-8') as f:
-            json.dump(list(links), f, ensure_ascii=False)
-        logging.info(f"Сохранено {len(links)} ссылок")
-    except Exception as e:
-        logging.error(f"Ошибка при сохранении processed_links: {e}")
-
-def save_rejected_news(title, link, reason):
-    try:
-        rejected = []
-        if os.path.exists(REJECTED_NEWS_FILE):
-            with open(REJECTED_NEWS_FILE, "r", encoding='utf-8') as f:
-                rejected = json.load(f)
-        rejected.append({
-            "title": title,
-            "link": link,
-            "reason": reason,
-            "time": time.strftime("%Y-%m-%d %H:%M:%S")
-        })
-        with open(REJECTED_NEWS_FILE, "w", encoding='utf-8') as f:
-            json.dump(rejected, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logging.error(f"Ошибка сохранения отклоненной новости: {e}")
+    with open(PROCESSED_LINKS_FILE, "w", encoding='utf-8') as f:
+        json.dump(list(links), f, ensure_ascii=False)
 
 def matches_keywords(text):
     text = text.lower()
-    for keyword in KEYWORDS:
-        if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', text):
-            return True
-    return False
+    return any(k in text for k in KEYWORDS)
 
 def parse_feed(feed):
-    try:
-        parsed = feedparser.parse(feed["url"])
-        if not parsed.entries and feed.get("fallback"):
-            parsed = feedparser.parse(feed["fallback"])
-        return parsed.entries[:5]
-    except Exception as e:
-        logging.error(f"Ошибка парсинга {feed['name']}: {e}")
-        return []
+    parsed = feedparser.parse(feed["url"])
+    return parsed.entries[:5]
+
+# ------------------ POST ------------------
 
 async def publish_news(title, link):
     message = f"📰 <b>{title}</b>\n🔗 {link}"
-    success = True
 
+    # Telegram
     for channel in CHANNELS:
         if not channel.strip():
-            logging.warning("Пропущен пустой chat_id в списке CHANNELS")
             continue
         try:
-            await bot.send_message(chat_id=channel.strip(), text=message, parse_mode=ParseMode.HTML)
-            await asyncio.sleep(2)
+            await bot.send_message(
+                chat_id=channel.strip(),
+                text=message,
+                parse_mode=ParseMode.HTML
+            )
         except Exception as e:
-            logging.error(f"Ошибка отправки в {channel}: {e}")
-            success = False
-            try:
-                if ADMIN_CHAT_ID:
-                    await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Ошибка отправки в {channel}: {e}")
-            except Exception as e_admin:
-                logging.error(f"Ошибка при уведомлении администратора: {e_admin}")
-    return success
+            logging.error(f"TG ошибка: {e}")
+
+    # MAX
+    max_text = f"📰 {title}\n🔗 {link}"
+    send_to_max(max_text)
+
+    return True
+
+# ------------------ MAIN ------------------
 
 async def main():
-    logging.info(f"Запуск скрипта: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logging.info("Старт")
+
     processed_links = load_processed_links()
 
     for feed in RSS_FEEDS:
         entries = parse_feed(feed)
+
         for entry in entries:
-            title = entry.get("title", "").strip()
-            link = entry.get("link", "").strip()
-            desc = entry.get("summary", entry.get("description", "")).strip()
+            title = entry.get("title", "")
+            link = entry.get("link", "")
+            desc = entry.get("summary", "")
 
             if not title or not link:
                 continue
 
             if link in processed_links:
-                save_rejected_news(title, link, "дубликат")
                 continue
 
             if matches_keywords(title) or matches_keywords(desc):
-                if await publish_news(title, link):
-                    processed_links.add(link)
-                else:
-                    save_rejected_news(title, link, "ошибка отправки")
-            else:
-                save_rejected_news(title, link, "не соответствует ключевым словам")
+                await publish_news(title, link)
+                processed_links.add(link)
 
     save_processed_links(processed_links)
-    logging.info("Завершение работы скрипта")
+
+    logging.info("Готово")
 
 if __name__ == "__main__":
     asyncio.run(main())
