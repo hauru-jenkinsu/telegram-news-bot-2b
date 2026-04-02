@@ -2,7 +2,6 @@ import os
 import time
 import json
 import logging
-import re
 import feedparser
 import asyncio
 import random
@@ -28,34 +27,24 @@ load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
 CHANNELS = os.getenv("CHANNELS", "").split(",")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
 # MAX
 MAX_CHAT_ID = -72955706374877
 MAX_USER_ID = 253598941
 
+bot = Bot(token=TOKEN)
+
 # ------------------ FILES ------------------
 
-PROCESSED_LINKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed_links.json')
-REJECTED_NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected_news.json')
+PROCESSED_LINKS_FILE = "processed_links.json"
 
 # ------------------ RSS ------------------
 
 RSS_FEEDS = [
-    {"name": "lenta.ru", "url": "https://lenta.ru/rss/news/", "fallback": "https://lenta.ru/rss/"},
-    {"name": "vpk.name", "url": "https://vpk.name/rss/", "fallback": None},
-    {"name": "ria.ru", "url": "https://ria.ru/export/rss2/index.xml", "fallback": "https://ria.ru/export/rss2/army/index.xml"},
-    {"name": "rg.ru", "url": "https://rg.ru/xml/index.xml", "fallback": None},
-    {"name": "tass.ru", "url": "https://tass.ru/rss/v2.xml?sections=MjQ%3D", "fallback": None}
+    {"url": "https://lenta.ru/rss/news/"},
 ]
 
-KEYWORDS = [
-    "сво","вс рф","армия","войска","техника","танк","ракета","оборона","минобороны"
-]
-
-bot = Bot(token=TOKEN)
-
-# ------------------ MAX (РАБОЧАЯ ВЕРСИЯ С INIT) ------------------
+# ------------------ MAX ------------------
 
 def generate_cid():
     return -int(time.time() * 1000)
@@ -76,7 +65,7 @@ def send_to_max(text):
         }))
         time.sleep(0.3)
 
-        # PROFILE / SESSION
+        # SESSION
         ws.send(json.dumps({
             "ver": 11,
             "cmd": 1,
@@ -96,7 +85,7 @@ def send_to_max(text):
         }))
         time.sleep(0.3)
 
-        # SEND MESSAGE
+        # SEND
         ws.send(json.dumps({
             "ver": 11,
             "cmd": 0,
@@ -126,24 +115,14 @@ def send_to_max(text):
 
 def load_processed_links():
     try:
-        with open(PROCESSED_LINKS_FILE, "r", encoding='utf-8') as f:
+        with open(PROCESSED_LINKS_FILE, "r") as f:
             return set(json.load(f))
     except:
         return set()
 
 def save_processed_links(links):
-    with open(PROCESSED_LINKS_FILE, "w", encoding='utf-8') as f:
-        json.dump(list(links), f, ensure_ascii=False)
-
-def matches_keywords(text):
-    text = text.lower()
-    return any(re.search(r'\b' + re.escape(k) + r'\b', text) for k in KEYWORDS)
-
-def parse_feed(feed):
-    parsed = feedparser.parse(feed["url"])
-    if not parsed.entries and feed.get("fallback"):
-        parsed = feedparser.parse(feed["fallback"])
-    return parsed.entries[:5]
+    with open(PROCESSED_LINKS_FILE, "w") as f:
+        json.dump(list(links), f)
 
 # ------------------ POST ------------------
 
@@ -169,8 +148,6 @@ async def publish_news(title, link):
         except Exception as e:
             logging.error(f"Ошибка TG: {e}")
 
-    return True
-
 # ------------------ MAIN ------------------
 
 async def main():
@@ -179,12 +156,11 @@ async def main():
     processed_links = load_processed_links()
 
     for feed in RSS_FEEDS:
-        entries = parse_feed(feed)
+        parsed = feedparser.parse(feed["url"])
 
-        for entry in entries:
+        for entry in parsed.entries[:5]:
             title = entry.get("title", "")
             link = entry.get("link", "")
-            desc = entry.get("summary", "")
 
             if not title or not link:
                 continue
@@ -192,9 +168,8 @@ async def main():
             if link in processed_links:
                 continue
 
-            if matches_keywords(title) or matches_keywords(desc):
-                await publish_news(title, link)
-                processed_links.add(link)
+            await publish_news(title, link)
+            processed_links.add(link)
 
     save_processed_links(processed_links)
 
