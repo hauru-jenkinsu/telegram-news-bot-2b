@@ -12,7 +12,7 @@ def _send_to_max_sync(text):
 
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=True,  # 👈 ВАЖНО
+                headless=True,
                 args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
 
@@ -21,14 +21,16 @@ def _send_to_max_sync(text):
 
             page.goto(MAX_CHAT_URL)
 
-            # даём время MAX загрузиться (он медленный)
-            page.wait_for_timeout(10000)
+            logging.info(f"MAX URL: {page.url}")
 
-            logging.info("MAX: ищем поле")
+            # ждём поле ввода (долго, потому что MAX тормозной)
+            page.wait_for_selector("div[contenteditable='true']", timeout=30000)
+
+            logging.info("MAX: вводим текст")
 
             input_box = page.locator("div[contenteditable='true']").first
 
-            input_box.click(timeout=10000)
+            input_box.click()
             input_box.fill(text)
 
             page.keyboard.press("Enter")
