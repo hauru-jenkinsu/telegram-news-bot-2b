@@ -20,24 +20,33 @@ def _send_to_max_sync(text):
             page = context.new_page()
 
             page.goto(MAX_CHAT_URL)
+            page.wait_for_timeout(8000)
 
-            logging.info(f"MAX URL: {page.url}")
+            logging.info("MAX: пробуем отправку через JS")
 
-            # ждём поле ввода (долго, потому что MAX тормозной)
-            page.wait_for_selector("div[contenteditable='true']", timeout=30000)
+            # 🔥 ВАЖНО: отправка через JS (без UI)
+            page.evaluate(f"""
+                (() => {{
+                    const event = new KeyboardEvent('keydown', {{
+                        bubbles: true,
+                        cancelable: true,
+                        keyCode: 13
+                    }});
 
-            logging.info("MAX: вводим текст")
+                    const textarea = document.querySelector('[contenteditable="true"]');
+                    if (!textarea) {{
+                        console.log("NO INPUT FOUND");
+                        return;
+                    }}
 
-            input_box = page.locator("div[contenteditable='true']").first
+                    textarea.innerText = `{text}`;
+                    textarea.dispatchEvent(event);
+                }})()
+            """)
 
-            input_box.click()
-            input_box.fill(text)
+            page.wait_for_timeout(3000)
 
-            page.keyboard.press("Enter")
-
-            page.wait_for_timeout(2000)
-
-            logging.info("MAX: отправлено")
+            logging.info("MAX: отправка выполнена")
 
             browser.close()
 
