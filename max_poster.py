@@ -2,37 +2,42 @@ import asyncio
 import logging
 from playwright.sync_api import sync_playwright
 
-# 👉 ВСТАВЬ СЮДА СВОЮ ССЫЛКУ
 MAX_CHAT_URL = "https://web.max.ru/-72983374297821"
 
 logging.basicConfig(level=logging.INFO)
-
-# ------------------ SYNC ЧАСТЬ ------------------
 
 def _send_to_max_sync(text):
     try:
         logging.info("MAX: запуск браузера")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+            browser = p.chromium.launch(
+                headless=False,
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
+            )
+
             context = browser.new_context(storage_state="auth.json")
             page = context.new_page()
 
-            # открываем группу
             page.goto(MAX_CHAT_URL)
 
-            # ждём загрузку
-            page.wait_for_selector("div[contenteditable='true']", timeout=15000)
+            # 👉 ждем не просто селектор, а готовность страницы
+            page.wait_for_load_state("networkidle")
 
-            logging.info("MAX: ищем поле ввода")
+            # 👉 теперь ждем input
+            page.wait_for_selector("div[contenteditable='true']", timeout=20000)
 
-            # универсальный селектор для чата
+            logging.info("MAX: вводим текст")
+
             input_box = page.locator("div[contenteditable='true']").first
 
-            input_box.click(timeout=5000)
+            input_box.click()
             input_box.fill(text)
 
             page.keyboard.press("Enter")
+
+            # 👉 даём время на отправку
+            page.wait_for_timeout(2000)
 
             logging.info("MAX: сообщение отправлено")
 
@@ -40,8 +45,6 @@ def _send_to_max_sync(text):
 
     except Exception as e:
         logging.error(f"MAX ошибка: {e}")
-
-# ------------------ ASYNC ОБЁРТКА ------------------
 
 async def send_to_max(text):
     loop = asyncio.get_running_loop()
