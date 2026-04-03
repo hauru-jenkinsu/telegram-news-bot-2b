@@ -10,9 +10,6 @@ from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from dotenv import load_dotenv
 
-# 👉 ДОБАВЛЕНО (MAX WS)
-from max_sender import send_to_max_ws
-
 # Настройка логирования
 log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parser.log')
 logging.basicConfig(
@@ -111,12 +108,7 @@ async def publish_news(title, link):
             continue
         try:
             await bot.send_message(chat_id=channel.strip(), text=message, parse_mode=ParseMode.HTML)
-
-            # 👉 ДОБАВЛЕНО (MAX WS)
-            await send_to_max_ws(f"{title}\n{link}")
-
             await asyncio.sleep(2)
-
         except Exception as e:
             logging.error(f"Ошибка отправки в {channel}: {e}")
             success = False
