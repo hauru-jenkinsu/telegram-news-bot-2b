@@ -14,7 +14,7 @@ def _send_to_max_sync(text):
         logging.info("MAX: запуск браузера")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=False)
             context = browser.new_context(storage_state="auth.json")
             page = context.new_page()
 
@@ -22,7 +22,7 @@ def _send_to_max_sync(text):
             page.goto(MAX_CHAT_URL)
 
             # ждём загрузку
-            page.wait_for_timeout(7000)
+            page.wait_for_selector("div[contenteditable='true']", timeout=15000)
 
             logging.info("MAX: ищем поле ввода")
 
