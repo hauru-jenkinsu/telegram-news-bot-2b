@@ -7,6 +7,7 @@ import asyncio
 from telegram import Bot
 from telegram.constants import ParseMode
 from dotenv import load_dotenv
+
 from playwright.sync_api import sync_playwright
 
 # ------------------ ЛОГИ ------------------
@@ -35,15 +36,16 @@ def _send_to_max_sync(text):
             context = browser.new_context(storage_state="auth.json")
             page = context.new_page()
 
-            page.goto("https://web.max.ru")
-            page.wait_for_timeout(8000)
+            # 👉 СРАЗУ В ЧАТ
+            page.goto("https://web.max.ru/-72955706374877")
 
-            page.locator("text=Информанто").first.click()
-            page.wait_for_timeout(5000)
+            # короткое ожидание
+            page.wait_for_timeout(7000)
 
+            # поле ввода
             input_box = page.locator("div[contenteditable='true']").first
 
-            input_box.click()
+            input_box.click(timeout=5000)
             input_box.fill(text)
 
             page.keyboard.press("Enter")
@@ -54,6 +56,7 @@ def _send_to_max_sync(text):
 
     except Exception as e:
         logging.error(f"MAX ошибка: {e}")
+
 
 async def send_to_max(text):
     loop = asyncio.get_running_loop()
@@ -81,17 +84,22 @@ async def publish_news(title, link):
         if not channel.strip():
             continue
 
-        await bot.send_message(
-            chat_id=channel.strip(),
-            text=message,
-            parse_mode=ParseMode.HTML
-        )
+        try:
+            await bot.send_message(
+                chat_id=channel.strip(),
+                text=message,
+                parse_mode=ParseMode.HTML
+            )
 
-        logging.info("TG: отправлено")
+            logging.info("TG: отправлено")
 
-        await send_to_max(message)
+            # 👉 MAX
+            await send_to_max(message)
 
-        await asyncio.sleep(2)
+            await asyncio.sleep(1)
+
+        except Exception as e:
+            logging.error(f"Ошибка TG: {e}")
 
 # ------------------ MAIN ------------------
 
@@ -102,15 +110,24 @@ async def main():
 
     parsed = feedparser.parse("https://lenta.ru/rss/news/")
 
-    for entry in parsed.entries[:3]:  # 👈 всегда 3 поста
+    sent = 0
+
+    for entry in parsed.entries:
+        if sent >= 2:  # 👉 ограничили, чтобы не висело
+            break
+
         title = entry.get("title", "")
         link = entry.get("link", "")
+
+        if not title or not link:
+            continue
 
         if link in processed_links:
             continue
 
         await publish_news(title, link)
         processed_links.add(link)
+        sent += 1
 
     save_processed_links(processed_links)
 
