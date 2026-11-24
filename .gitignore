@@ -1,0 +1,13 @@
+# Секреты и данные авторизации
+.env
+auth.json
+*.session
+*.token
+
+# Логи
+*.log
+parser.log
+
+# Временные файлы Python
+__pycache__/
+*.pyc
