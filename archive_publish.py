@@ -21,6 +21,7 @@ DELAY_PER_CHANNEL = 3.2
 POOL_SIZE = 20
 POOL_TIMEOUT = 30.0
 POOL_TIMEOUT_RETRIES = 10
+CONNECT_RETRIES = 8
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -31,7 +32,7 @@ class AmbiguousDelivery(RuntimeError):
 
 def load_state():
     if not STATE.exists():
-        return {"done": set(), "uncertain": {}}
+        raise RuntimeError("archive_progress.json is missing; refusing to start with an empty progress file")
     raw = json.loads(STATE.read_text(encoding="utf-8"))
     if isinstance(raw, list):
         return {"done": set(raw), "uncertain": {}}
@@ -59,16 +60,37 @@ def load_queue():
     return sorted(items, key=lambda x: (x["sort_date_internal"], x["url"]))
 
 
-def is_pool_timeout(error):
-    """httpx PoolTimeout means no HTTP request was sent to Telegram."""
+def exception_chain(error):
     current = error
     seen = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if type(current).__name__ == "PoolTimeout":
-            return True
+        yield current
         current = current.__cause__ or current.__context__
-    return "Pool timeout: All connections in the connection pool are occupied" in str(error)
+
+
+def is_pool_timeout(error):
+    return any(type(x).__name__ == "PoolTimeout" for x in exception_chain(error)) or \
+        "Pool timeout: All connections in the connection pool are occupied" in str(error)
+
+
+def is_connect_failure(error):
+    # ConnectError/ConnectTimeout happen while establishing the TCP/TLS connection;
+    # the HTTP request has not been transmitted, so retrying cannot duplicate a post.
+    safe_names = {"ConnectError", "ConnectTimeout"}
+    return any(type(x).__name__ in safe_names for x in exception_chain(error))
+
+
+async def record_uncertain(key, channel, item, error, state, lock):
+    async with lock:
+        state["uncertain"][key] = {
+            "channel": channel,
+            "title": item["title"],
+            "url": item["url"],
+            "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+            "error": f"{type(error).__name__}: {error}",
+        }
+        save_state(state)
 
 
 async def send_one(bot, channel, item, state, lock, stop_event):
@@ -78,6 +100,7 @@ async def send_one(bot, channel, item, state, lock, stop_event):
 
     message = f"📰 <b>{html.escape(item['title'])}</b>\n🔗 {html.escape(item['url'])}"
     pool_retries = 0
+    connect_retries = 0
 
     while not stop_event.is_set():
         try:
@@ -102,38 +125,28 @@ async def send_one(bot, channel, item, state, lock, stop_event):
                 pool_retries += 1
                 if pool_retries > POOL_TIMEOUT_RETRIES:
                     stop_event.set()
-                    logging.exception("HTTP pool remained unavailable; request was not sent. Stopping safely.")
+                    logging.exception("HTTP pool unavailable after safe retries; request was not sent")
                     raise RuntimeError("HTTP connection pool unavailable after repeated safe retries") from e
                 wait = min(2 + pool_retries, 10)
-                logging.warning(
-                    "HTTP PoolTimeout for %s: request was NOT sent; safe retry %d/%d in %ds",
-                    channel, pool_retries, POOL_TIMEOUT_RETRIES, wait,
-                )
+                logging.warning("HTTP PoolTimeout for %s: request NOT sent; safe retry %d/%d in %ds", channel, pool_retries, POOL_TIMEOUT_RETRIES, wait)
                 await asyncio.sleep(wait)
                 continue
-
-            async with lock:
-                state["uncertain"][key] = {
-                    "channel": channel,
-                    "title": item["title"],
-                    "url": item["url"],
-                    "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
-                    "error": f"{type(e).__name__}: {e}",
-                }
-                save_state(state)
+            await record_uncertain(key, channel, item, e, state, lock)
             stop_event.set()
             logging.exception("DELIVERY UNCERTAIN channel=%s url=%s; automatic retry disabled", channel, item["url"])
             raise AmbiguousDelivery(f"Delivery outcome is uncertain for {channel} / {item['url']}") from e
         except NetworkError as e:
-            async with lock:
-                state["uncertain"][key] = {
-                    "channel": channel,
-                    "title": item["title"],
-                    "url": item["url"],
-                    "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
-                    "error": f"{type(e).__name__}: {e}",
-                }
-                save_state(state)
+            if is_connect_failure(e):
+                connect_retries += 1
+                if connect_retries > CONNECT_RETRIES:
+                    stop_event.set()
+                    logging.exception("Connection could not be established after safe retries; request was not sent")
+                    raise RuntimeError("Telegram connection unavailable after repeated safe retries") from e
+                wait = min(5 * (2 ** (connect_retries - 1)), 60)
+                logging.warning("Telegram ConnectError/ConnectTimeout for %s: request NOT sent; safe retry %d/%d in %ds", channel, connect_retries, CONNECT_RETRIES, wait)
+                await asyncio.sleep(wait)
+                continue
+            await record_uncertain(key, channel, item, e, state, lock)
             stop_event.set()
             logging.exception("DELIVERY UNCERTAIN channel=%s url=%s; automatic retry disabled", channel, item["url"])
             raise AmbiguousDelivery(f"Delivery outcome is uncertain for {channel} / {item['url']}") from e
@@ -167,16 +180,24 @@ async def main():
         raise RuntimeError("CHANNELS secret is empty")
     items = load_queue()
     state = load_state()
+
+    # The previous run failed during TLS connection setup for this exact target.
+    # ConnectError occurred before the HTTP request was sent, so retry is safe.
+    known_pre_send_failure = "@BoevoyOrientir|https://tass.ru/obschestvo/28073497"
+    if known_pre_send_failure in state["uncertain"]:
+        info = state["uncertain"].pop(known_pre_send_failure)
+        logging.warning("Clearing prior ConnectError uncertainty (request was not sent): %s", info.get("url"))
+        save_state(state)
+
     if state["uncertain"]:
         examples = list(state["uncertain"].values())[:5]
-        logging.error("There are %d uncertain deliveries. Resolve them in archive_progress.json before restarting. Examples: %s", len(state["uncertain"]), examples)
-        raise RuntimeError("Uncertain deliveries require manual reconciliation; no posts sent")
+        logging.error("There are %d genuinely uncertain deliveries. Examples: %s", len(state["uncertain"]), examples)
+        raise RuntimeError("Uncertain deliveries require reconciliation; no posts sent")
 
     total_targets = len(items) * len(CHANNELS)
     logging.info("Queue=%d channels=%d already_done=%d total_targets=%d", len(items), len(CHANNELS), len(state["done"]), total_targets)
     lock = asyncio.Lock()
     stop_event = asyncio.Event()
-
     request = HTTPXRequest(
         connection_pool_size=POOL_SIZE,
         pool_timeout=POOL_TIMEOUT,
