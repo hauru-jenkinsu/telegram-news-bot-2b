@@ -71,20 +71,5 @@
     "@informanto_channel|https://rg.ru/2026/09/01/v-mid-zaiavili-o-naigrannom-vozmushchenii-zelenskogo-razmeshcheniem-skladov-vsu-v-domah.html",
     "@informanto_channel|https://vpk.name/news/1152383_rossiya_kitai_i_mongoliya_provedut_sovmestnye_pogranichnye_ucheniya.html"
   ],
-  "uncertain": {
-    "@OperativnayyaLenta|https://vpk.name/news/1152383_rossiya_kitai_i_mongoliya_provedut_sovmestnye_pogranichnye_ucheniya.html": {
-      "channel": "@OperativnayyaLenta",
-      "title": "Россия, Китай и Монголия проведут совместные пограничные учения",
-      "url": "https://vpk.name/news/1152383_rossiya_kitai_i_mongoliya_provedut_sovmestnye_pogranichnye_ucheniya.html",
-      "recorded_at_utc": "2026-11-24T14:36:54.958804+00:00",
-      "error": "TimedOut: Pool timeout: All connections in the connection pool are occupied. Request was *not* sent to Telegram. Consider adjusting the connection pool size or the pool timeout."
-    },
-    "@SvodkaSektora|https://vpk.name/news/1152383_rossiya_kitai_i_mongoliya_provedut_sovmestnye_pogranichnye_ucheniya.html": {
-      "channel": "@SvodkaSektora",
-      "title": "Россия, Китай и Монголия проведут совместные пограничные учения",
-      "url": "https://vpk.name/news/1152383_rossiya_kitai_i_mongoliya_provedut_sovmestnye_pogranichnye_ucheniya.html",
-      "recorded_at_utc": "2026-11-24T14:36:58.685787+00:00",
-      "error": "TimedOut: Timed out"
-    }
-  }
+  "uncertain": {}
 }
