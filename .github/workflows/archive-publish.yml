@@ -1,0 +1,49 @@
+name: Bulk archive repost
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bulk-archive-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Telegram dependency
+        run: python -m pip install --upgrade pip python-telegram-bot==20.7
+
+      - name: Publish archive queue
+        id: publish
+        env:
+          TOKEN: ${{ secrets.TOKEN }}
+          CHANNELS: ${{ secrets.CHANNELS }}
+        run: python archive_publish.py
+
+      - name: Save progress for safe resume
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add archive_progress.json
+          if git diff --cached --quiet; then
+            echo "No progress changes to commit"
+          else
+            git commit -m "Save archive publication progress"
+            git push
+          fi
